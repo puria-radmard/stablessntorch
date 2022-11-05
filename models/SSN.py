@@ -35,9 +35,9 @@ class SameNumEISSN(nn.Module):
         self.dynamics_kwargs = dynamics_kwargs
 
         # Will be directly overwritten later
-        self.W = torch.zeros([num_initial_e_neurons * 2, num_initial_e_neurons * 2])
-        self.thetas = torch.zeros(3)
-        self.N_matrix = torch.zeros([num_initial_e_neurons * 2, num_initial_e_neurons * 2])
+        self.W = Parameter(torch.zeros([num_initial_e_neurons * 2, num_initial_e_neurons * 2]))
+        self.thetas = Parameter(torch.zeros(3))
+        self.N_matrix = Parameter(torch.zeros([num_initial_e_neurons * 2, num_initial_e_neurons * 2]))
 
     def load_W(self, new_W: T):
         self.W = Parameter(new_W)
@@ -132,7 +132,7 @@ class SameNumEISSN(nn.Module):
             inhvar = (scale ** 2) * target_cov
             inhmean = scale * target_mean
 
-            self.W = Parameter(torch.randn([num_neurons, num_neurons])) * test_w_scale
+            self.W = Parameter(torch.randn([num_neurons, num_neurons])  * test_w_scale)
             self.thetas = Parameter(torch.randn(3) * test_thetas_scales)
 
             inhmean, inhvar, currentcost = self.update_inh(
@@ -149,7 +149,7 @@ class SameNumEISSN(nn.Module):
             counter += 1
             print(f"Unstable after {counter} attempt(s)", end='\r')
 
-        return inhmean, inhvar, currentcost
+        return [_t.detach() for _t in (inhmean, inhvar, currentcost)]
 
     def train_init_w_with_inh(self, input_h: T, target_mean: T, target_cov: T, inhmean: T, inhvar: T):
 
@@ -158,12 +158,12 @@ class SameNumEISSN(nn.Module):
 
         target_var = torch.diagonal(target_cov, 0, 2) 
 
+        targetvar2 = torch.concat([target_var, inhvar], axis=1).unsqueeze(-1)
+        targetmean2 = torch.concat([target_mean, inhmean], axis=1).unsqueeze(-1)
+
         for i in range(50): # Hardcoded!
 
             optimiser.zero_grad()
-
-            targetvar2 = torch.concat([target_var, inhvar], axis=1).unsqueeze(-1)
-            targetmean2 = torch.concat([target_mean, inhmean], axis=1).unsqueeze(-1)
 
             W = self.mask_weight()
             f = input_nonlinearity(input_h, *self.thetas)
@@ -208,14 +208,14 @@ class SameNumEISSN(nn.Module):
             )
 
             print("\n")
-            print(f"Initialisation {j} done!")
+            print(f"Initialisation {j} done! Begining {repeats_per_iteration} training repeats")
 
             all_costs[j, 0] = current_cost.detach().item()
             all_ws[j, 0] = self.W.detach().clone()
             all_thetas[j, 0] = self.thetas.detach().clone()
 
             # i.e. now, we have established that this random W is stable, so we can repeat
-            for i in range(1, repeats_per_iteration):
+            for i in tqdm(range(repeats_per_iteration)):
                 
                 self.train_init_w_with_inh(
                     input_h=init_input,

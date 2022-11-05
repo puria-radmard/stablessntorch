@@ -1,15 +1,29 @@
 import numpy as np
 import torch
+import sys, os
 from models.SSN import SameNumEISSN
 from utils.dynamics_neutral_growth import select_top_params
 
 
+
+################################################################################
+
+save_subpath_name = sys.argv[-1]
+save_subpath = f"save/{save_subpath_name}"
+if not os.path.isdir(save_subpath):
+    os.mkdir(save_subpath)
+if not os.path.isdir(os.path.join(save_subpath, "network_growth")):
+    os.mkdir(os.path.join(save_subpath, "network_growth"))
+
+################################################################################
+
+
 ## Reload
 
-posterior_distribution_means = torch.tensor(np.load("save/gsm_posterior_distribution_means.npy"))
-posterior_distribution_covs = torch.tensor(np.load("save/gsm_posterior_distribution_covs.npy"))
+posterior_distribution_means = torch.tensor(np.load(os.path.join(save_subpath, "gsm_posterior_distribution_means.npy")))
+posterior_distribution_covs = torch.tensor(np.load(os.path.join(save_subpath, "gsm_posterior_distribution_covs.npy")))
 
-input_features = torch.tensor(np.load("save/ssn_inputs.npy"))
+input_features = torch.tensor(np.load(os.path.join(save_subpath, "ssn_inputs.npy")))
 
 ################################################################################
 ############  SSN INITIALISATION  ##############################################
@@ -19,8 +33,8 @@ input_features = torch.tensor(np.load("save/ssn_inputs.npy"))
 dt = 0.0002
 tau_eta = 0.02
 simulation_T = 0.5
-num_initialisation_patterns = 100
-num_initialisation_iterations=10
+num_initialisation_patterns = 1# 00
+num_initialisation_iterations = 2# 10
 repeats_per_initialisation_iteration=20
 
 # Initiliase model class instance
@@ -55,14 +69,14 @@ init_costs, init_ws, init_thetas = ssn.initial_weight_training(
     num_patterns = num_initialisation_patterns,
     dt = dt,
 )
-np.save("save/parameters/init_costs.npy", init_costs.detach().numpy())
-np.save("save/parameters/init_ws.npy", init_ws.detach().numpy())
-np.save("save/parameters/init_thetas.npy", init_thetas.detach().numpy())
+np.save(os.path.join(save_subpath, "init_costs.npy"), init_costs.detach().numpy())
+np.save(os.path.join(save_subpath, "init_ws.npy"), init_ws.detach().numpy())
+np.save(os.path.join(save_subpath, "init_thetas.npy"), init_thetas.detach().numpy())
 
 top_costs, top_ws, top_thetas, ranking = select_top_params(init_costs, init_ws, init_thetas, num_initialisation_iterations)
 
-np.save('./parameters/top_init_ws.npy',top_ws[ranking[:10]].detach().numpy())
-np.save('./parameters/top_init_thetas.npy',top_thetas[ranking[:10]].detach().numpy())
+np.save(os.path.join(save_subpath, '/top_init_ws.npy'), top_ws[ranking[:10]].detach().numpy())
+np.save(os.path.join(save_subpath, '/top_init_thetas.npy'), top_thetas[ranking[:10]].detach().numpy())
 
 
 
@@ -70,10 +84,9 @@ np.save('./parameters/top_init_thetas.npy',top_thetas[ranking[:10]].detach().num
 ############  SSN FINAL SAVE  ##################################################
 ################################################################################
 
-ssn.load_N_matrix(0.9*torch.identity(2) + 0.1*torch.ones([2,2]))
+ssn.load_N_matrix(0.9*torch.eye(2) + 0.1*torch.ones([2,2]))
 ssn.load_thetas(top_thetas[0].detach())
 ssn.load_W(top_ws.detach())
 
 # Save so we can skip directly to here later
-torch.save(ssn.state_dict(), "save/network_growth/simexpand_E1.mdl")
-
+torch.save(ssn.state_dict(), os.path.join(save_subpath, "network_growth/simexpand_E1.mdl"))

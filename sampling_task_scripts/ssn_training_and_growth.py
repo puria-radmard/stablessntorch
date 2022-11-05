@@ -1,18 +1,26 @@
-from matplotlib import pyplot as plt
 import numpy as np
 import torch
-import json
+import os
 import sys
-from models.GSM import GSM
 from models.SSN import SameNumEISSN
 from utils.dynamics_neutral_growth import dynamics_neutral_mitosis, select_top_params
 
 
-## Reload
-posterior_distribution_means = torch.tensor(np.load("save/gsm_posterior_distribution_means.npy"))
-posterior_distribution_covs = torch.tensor(np.load("save/gsm_posterior_distribution_covs.npy"))
+################################################################################
 
-input_features = torch.tensor(np.load("save/ssn_inputs.npy"))
+save_subpath_name = sys.argv[-1]
+save_subpath = f"save/{save_subpath_name}"
+if not os.path.isdir(save_subpath):
+    os.mkdir(save_subpath)
+
+################################################################################
+
+
+## Reload
+posterior_distribution_means = torch.tensor(np.load(os.path.join(save_subpath, "gsm_posterior_distribution_means.npy")))
+posterior_distribution_covs = torch.tensor(np.load(os.path.join(save_subpath, "gsm_posterior_distribution_covs.npy")))
+
+input_features = torch.tensor(np.load(os.path.join(save_subpath, "ssn_inputs.npy")))
 
 
 # Number of neurons we start with, i.e. we train with starting_size E and I neurons then grow one more
@@ -42,7 +50,7 @@ ssn = SameNumEISSN(
     num_initial_e_neurons=starting_size,
 )
 
-ssn.load_state_dict(torch.load(f"save/network_growth/simexpand_E{starting_size}.mdl"))
+ssn.load_state_dict(torch.load(os.path.join(save_subpath, f"network_growth/simexpand_E{starting_size}.mdl")))
 
 ################################################################################
 ############  SSN TRAINING  ####################################################
@@ -118,5 +126,5 @@ if starting_size < 50:
 
 
     torch.save(
-        ssn.state_dict(), f"save/network_growth/simexpand_E{starting_size+1}.mdl"
+        ssn.state_dict(), os.path.join(save_subpath, f"network_growth/simexpand_E{starting_size+1}.mdl")
     )
