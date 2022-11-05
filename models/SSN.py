@@ -10,6 +10,9 @@ from tqdm import tqdm
 from utils.ssn import dales_mask, dynamics_step, full_loss_function, inhibitory_cost, input_nonlinearity, sampling_cost_from_statistics
 
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
 class SameNumEISSN(nn.Module):
     """
     Same number of E and I at all times. Allows network growth, default starting with 1 E and 1 I neuron.
@@ -121,7 +124,7 @@ class SameNumEISSN(nn.Module):
         dt: float,
     ):
 
-        currentcost = torch.tensor(torch.nan)
+        currentcost = torch.tensor(torch.nan).to(device)
 
         counter = 0
 
@@ -184,9 +187,9 @@ class SameNumEISSN(nn.Module):
     ):
         num_neurons = init_input.shape[-1] * 2
 
-        all_costs = torch.zeros(num_iterations, repeats_per_iteration)
-        all_ws = torch.zeros(num_iterations, repeats_per_iteration, num_neurons, num_neurons)
-        all_thetas = torch.zeros(num_iterations, repeats_per_iteration, 3)
+        all_costs = torch.zeros(num_iterations, repeats_per_iteration).to(device)
+        all_ws = torch.zeros(num_iterations, repeats_per_iteration, num_neurons, num_neurons).to(device)
+        all_thetas = torch.zeros(num_iterations, repeats_per_iteration, 3).to(device)
 
         for j in range(num_iterations):
 
@@ -198,7 +201,7 @@ class SameNumEISSN(nn.Module):
                 scale_upper=2.0,
                 test_w_scale=0.1,
                 # Shouldn't these be 1, 1, 1?
-                test_thetas_scales=torch.tensor([0.1, 0.1, 1.0]),
+                test_thetas_scales=torch.tensor([0.1, 0.1, 1.0]).to(device),
                 num_trials=2000,
                 num_simulation_step=2000,
                 num_burn_in_step=2000,
@@ -249,7 +252,7 @@ class SameNumEISSN(nn.Module):
 
     def init_dynamics(self, num_trials: int, num_patterns: int):
         num_neurons = self.get_num_neurons()
-        u0 = torch.zeros([num_patterns, num_neurons, num_trials])
+        u0 = torch.zeros([num_patterns, num_neurons, num_trials]).to(device)
         return u0
 
     def tau_vector(self, num_trials: int):

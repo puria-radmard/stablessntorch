@@ -5,8 +5,9 @@ import sys
 
 from tqdm import tqdm
 from models.SSN import SameNumEISSN
-from utils.dynamics_neutral_growth import dynamics_neutral_mitosis, select_top_params
+from utils.dynamics_neutral_growth import dynamics_neutral_mitosis
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 ################################################################################
 
@@ -19,10 +20,10 @@ if not os.path.isdir(save_subpath):
 
 
 ## Reload
-posterior_distribution_means = torch.tensor(np.load(os.path.join(save_subpath, "gsm_posterior_distribution_means.npy")))
-posterior_distribution_covs = torch.tensor(np.load(os.path.join(save_subpath, "gsm_posterior_distribution_covs.npy")))
+posterior_distribution_means = torch.tensor(np.load(os.path.join(save_subpath, "gsm_posterior_distribution_means.npy"))).to(device)
+posterior_distribution_covs = torch.tensor(np.load(os.path.join(save_subpath, "gsm_posterior_distribution_covs.npy"))).to(device)
 
-input_features = torch.tensor(np.load(os.path.join(save_subpath, "ssn_inputs.npy")))
+input_features = torch.tensor(np.load(os.path.join(save_subpath, "ssn_inputs.npy"))).to(device)
 
 
 # Number of neurons we start with, i.e. we train with starting_size E and I neurons then grow one more
@@ -53,6 +54,7 @@ ssn = SameNumEISSN(
 )
 
 ssn.load_state_dict(torch.load(os.path.join(save_subpath, f"network_growth/simexpand_E{starting_size}.mdl")))
+ssn.to(device)
 
 ################################################################################
 ############  SSN TRAINING  ####################################################

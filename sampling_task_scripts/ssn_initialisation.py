@@ -4,6 +4,7 @@ import sys, os
 from models.SSN import SameNumEISSN
 from utils.dynamics_neutral_growth import select_top_params
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 ################################################################################

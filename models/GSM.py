@@ -4,13 +4,16 @@ import numpy as np
 import torch
 from torch import nn
 from torch import Tensor as T
-from torch.nn.parameter import Parameter, UninitializedParameter
+from torch.nn.parameter import Parameter
 
 from utils.gsm import *
 
-N_ITER = 10 #0000
-N_Z = 100
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
+N_ITER = 2000 # 10000
+N_Z = 100
 
 class GSM(nn.Module):
     def __init__(self, n_filters: int, square_size: int) -> None:
@@ -32,7 +35,7 @@ class GSM(nn.Module):
             torch.rand(self.n_filters) * self.square_size - (self.square_size / 2)
         )
 
-        self.pixel_noise_var = Parameter(torch.tensor(1.0))
+        self.log_pixel_noise_var = Parameter(torch.tensor(0.0))
         self.log_contrast_alpha = Parameter(torch.tensor(log(2.0)))
         self.log_contrast_beta = Parameter(torch.tensor(log(0.5)))
 
@@ -40,7 +43,7 @@ class GSM(nn.Module):
         self.latent_prior_covar_cholesky = Parameter(torch.zeros(n_filters, n_filters))
 
     def train_projective_fields(self, image_set: T) -> List:
-        image_set = image_set.float()
+        image_set = image_set.float().to(device)
         self.projective_fields, history = train_gsm_projective_fields(
             thetas=self.thetas,
             scales=self.scales,
@@ -54,28 +57,32 @@ class GSM(nn.Module):
 
     def initialise_bayesian_params(self, image_set: T):
         # [num_images, n_filters]
-        latents = self.generate_ssn_inputs(image_set=image_set, make_positive=False)
+        latents = self.generate_ssn_inputs(image_set=image_set, make_positive=False).cpu()
+        
         # Both are [n_filters, n_filters]
         latent_prior_covar = torch.cov(latents.T)
-        self.latent_prior_covar_cholesky = Parameter(
-            torch.linalg.cholesky(latent_prior_covar)
-        )
+        self.latent_prior_covar_cholesky = Parameter(torch.linalg.cholesky(latent_prior_covar).to(device))
 
     def train_bayesian_parameters(self, image_set: T) -> List:
         image_set = image_set.float()
         filter_set = self.projective_fields.reshape(
             self.square_size * self.square_size, -1
         )
+        
         history = train_gsm_bayesian_parameters(
             image_set=image_set,
             filter_set=filter_set,
             latent_prior_covar_cholesky=self.latent_prior_covar_cholesky,
-            pixel_noise_var=self.pixel_noise_var,
+            log_pixel_noise_var=self.log_pixel_noise_var,
             log_contrast_alpha=self.log_contrast_alpha,
             log_contrast_beta=self.log_contrast_beta,
             n_iter=N_ITER,
             Nz=N_Z,
         )
+
+        # Not constrained during training!
+        self.latent_prior_covar_cholesky = torch.tril(self.latent_prior_covar_cholesky)
+        
         return history
 
     def train_all(self, image_set: T):
@@ -95,7 +102,7 @@ class GSM(nn.Module):
             return gsm_inference(
                 image_set=image_set,
                 projective_fields=filter_set,
-                pixel_noise_var=self.pixel_noise_var,
+                log_pixel_noise_var=self.log_pixel_noise_var,
                 latent_prior_covar_cholesky=self.latent_prior_covar_cholesky,
                 log_contrast_alpha=self.log_contrast_alpha,
                 log_contrast_beta=self.log_contrast_beta,
@@ -103,7 +110,7 @@ class GSM(nn.Module):
             )
 
     def generate_ssn_inputs(self, image_set: T, make_positive: bool):
-        image_set = image_set.float()
+        image_set = image_set.float().to(device)
         filter_set = self.projective_fields.reshape(
             self.square_size * self.square_size, -1
         )
