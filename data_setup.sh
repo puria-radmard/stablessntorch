@@ -2,7 +2,9 @@
 
 mkdir data
 mkdir data/greyscale_cifar
+
 mkdir logs
+
 mkdir save
 mkdir save/network_growth
 

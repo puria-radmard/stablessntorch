@@ -20,7 +20,6 @@ def dynamics_neutral_mitosis(W: T, n: int):
     return new_W
 
 def select_top_params(init_costs, init_ws, init_thetas, num_initialisation_iterations):
-    # TODO: shouldn't this be 10 not 20??
     top_costs, top_ws, top_thetas = [], [], []
     for i in range(num_initialisation_iterations):
         idx = init_costs[i].argmin()

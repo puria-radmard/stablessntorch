@@ -22,7 +22,7 @@ if not os.path.isdir(save_subpath):
 square_size = 32
 n_filters = 50
 image_set = torch.tensor(np.load('data/greyscale_cifar/training_images.npy'))
-image_set = image_set[:2121]
+image_set = image_set
 gsm_model = GSM(n_filters=n_filters, square_size=square_size)
 
 if sys.argv[1] == 'retrain':
@@ -50,8 +50,6 @@ else:
 ) = gsm_model.infer_latent_distribution(image_set)
 np.save(os.path.join(save_subpath, "gsm_posterior_distribution_means.npy"), posterior_distribution_means.numpy())
 np.save(os.path.join(save_subpath, "gsm_posterior_distribution_covs.npy"), posterior_distribution_covs.numpy())
-# TODO: make target vars here too
-
 
 ## Infer inputs for SSN and save
 input_features = gsm_model.generate_ssn_inputs(image_set, make_positive=True).numpy()

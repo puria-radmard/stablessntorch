@@ -2,13 +2,15 @@ import numpy as np
 import torch
 import os
 import sys
+
+from tqdm import tqdm
 from models.SSN import SameNumEISSN
 from utils.dynamics_neutral_growth import dynamics_neutral_mitosis, select_top_params
 
 
 ################################################################################
 
-save_subpath_name = sys.argv[-1]
+save_subpath_name = sys.argv[2]
 save_subpath = f"save/{save_subpath_name}"
 if not os.path.isdir(save_subpath):
     os.mkdir(save_subpath)
@@ -57,46 +59,51 @@ ssn.load_state_dict(torch.load(os.path.join(save_subpath, f"network_growth/simex
 ################################################################################
 
 
-if starting_size<5:     multiplier = 20
-elif starting_size<10:  multiplier = 10
-elif starting_size<20:  multiplier = 5
-else:                   multiplier = 4
+if starting_size<5:     
+    multiplier = 2
+elif starting_size<10:  
+    multiplier = 10
+elif starting_size<20:  
+    multiplier = 5
+else:                   
+    multiplier = 4
 
 simulation_T = 0.5              # Ignore this?
 num_patterns_per_iter = 100
 num_iters_total = 50
-total_patterns = 50000
+total_patterns = posterior_distribution_means.shape[0]
 num_burn_in_step = 2000
 num_steps = 500       # actual
 
 num_trials = 100    # subbatchsize
 
+
 optimiser = torch.optim.Adam(ssn.parameters(), lr=0.01 if starting_size < 4 else 0.0001)
 
-for i in range(num_iters_total):
+for i in tqdm(range(num_iters_total)):
 
     optimiser.zero_grad()
     
-    chosen_patterns = (torch.rand(num_patterns_per_iter) * total_patterns).int()
-    
-    posterior_distribution_means = posterior_distribution_means[chosen_patterns,:starting_size]
-    posterior_distribution_covs  = posterior_distribution_covs[chosen_patterns,:starting_size, :starting_size]
-    input_features               = input_features[chosen_patterns,:starting_size]
+    chosen_patterns = (torch.rand(num_patterns_per_iter) * (total_patterns-1)).int()
+
+    batch_posterior_distribution_means = torch.index_select(posterior_distribution_means, 0, chosen_patterns)[:,:starting_size]
+    batch_posterior_distribution_covs  = torch.index_select(posterior_distribution_covs, 0, chosen_patterns)[:,:starting_size, :starting_size]
+    batch_input_features               = torch.index_select(input_features, 0, chosen_patterns)[:,:starting_size]
 
     iteration_cost = torch.tensor(0.)
 
     for j in range(int(20/multiplier)):
 
-        target_means_j = posterior_distribution_means[j*5*multiplier:(j+1)*5*multiplier]
-        target_covs_j = posterior_distribution_covs[j*5*multiplier:(j+1)*5*multiplier]
-        input_j = input_features[j*5*multiplier:(j+1)*5*multiplier]
+        target_means_j = batch_posterior_distribution_means[j*5*multiplier:(j+1)*5*multiplier]
+        target_covs_j = batch_posterior_distribution_covs[j*5*multiplier:(j+1)*5*multiplier]
+        input_j = batch_input_features[j*5*multiplier:(j+1)*5*multiplier]
 
         u_history = ssn.run_dynamics(
             num_trials   = num_trials,
             num_patterns = 5*multiplier,
-            num_step     = num_burn_in_step + num_steps,
+            num_steps    = num_burn_in_step + num_steps,
             dt           = dt,
-            h            = input_features
+            h            = batch_input_features
         )
 
         uall = torch.stack(u_history[num_burn_in_step:], 0)

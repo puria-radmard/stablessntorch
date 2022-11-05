@@ -152,7 +152,6 @@ def log_p_z(z: T, alpha: T, beta: T) -> T:
 def p_y_given_x_z(z: T, sigma_x: T, A: T, C: T, x: T):
     Nz = z.shape[0]
 
-    # TODO: precision issues here
     # [num_filters, num_filters, Nz]
     Cinv = torch.linalg.inv(C).unsqueeze(-1).repeat(1, 1, Nz)
 
@@ -162,7 +161,6 @@ def p_y_given_x_z(z: T, sigma_x: T, A: T, C: T, x: T):
     # [Nz]
     coeff = (z / sigma_x) ** 2  
 
-    # TODO: precision issues here
     # [num_filters, num_filters, Nz] -> changed
     S_z = torch.linalg.inv((Cinv + (coeff * AtA)).permute(-1, 0, 1))  
 

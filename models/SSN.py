@@ -127,7 +127,6 @@ class SameNumEISSN(nn.Module):
 
         while torch.isnan(currentcost):
 
-            # TODO: understand this, why init here, and the scale=2 variable
             scale = torch.rand(1)[0] * scale_upper
             inhvar = (scale ** 2) * target_cov
             inhmean = scale * target_mean
@@ -263,9 +262,14 @@ class SameNumEISSN(nn.Module):
         ).unsqueeze(-1).repeat(1, 1, num_trials)
 
     def new_eta(self, num_trials: int, num_patterns: int, old_eta=None):
-        # TODO: noise smoothing not in paper
         num_neurons = self.get_num_neurons()
-        return torch.randn([num_patterns, num_neurons, num_trials])
+        new_rand = self.N_matrix @ torch.randn([num_patterns, num_neurons, num_trials])
+        if old_eta is not None:
+            old_comp = old_eta * self.dynamics_kwargs['eps1']
+            new_comp = self.dynamics_kwargs['eps2'] * new_rand
+            return old_comp + new_comp
+        else:
+            return new_rand
 
     def run_dynamics(self, num_trials: int, num_patterns: int, num_steps: int, dt: float, h: T):
         eta = self.new_eta(num_trials, num_patterns)            # [patterns, total neurons, trials]

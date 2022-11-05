@@ -8,7 +8,7 @@ from utils.dynamics_neutral_growth import select_top_params
 
 ################################################################################
 
-save_subpath_name = sys.argv[-1]
+save_subpath_name = sys.argv[1]
 save_subpath = f"save/{save_subpath_name}"
 if not os.path.isdir(save_subpath):
     os.mkdir(save_subpath)
@@ -58,7 +58,6 @@ initcov = posterior_distribution_covs[:num_initialisation_patterns, :1, :1]
 
 
 # Train initial weight matrix
-# TODO: understand and num_iterations and repeats_per_iteration better
 # All are [num_iterations, repeats_per_iteration, ...]
 init_costs, init_ws, init_thetas = ssn.initial_weight_training(
     init_input = inith,
@@ -75,8 +74,8 @@ np.save(os.path.join(save_subpath, "init_thetas.npy"), init_thetas.detach().nump
 
 top_costs, top_ws, top_thetas, ranking = select_top_params(init_costs, init_ws, init_thetas, num_initialisation_iterations)
 
-np.save(os.path.join(save_subpath, '/top_init_ws.npy'), top_ws[ranking[:10]].detach().numpy())
-np.save(os.path.join(save_subpath, '/top_init_thetas.npy'), top_thetas[ranking[:10]].detach().numpy())
+np.save(os.path.join(save_subpath, 'top_init_ws.npy'), top_ws[ranking[:10]].detach().numpy())
+np.save(os.path.join(save_subpath, 'top_init_thetas.npy'), top_thetas[ranking[:10]].detach().numpy())
 
 
 
@@ -85,8 +84,8 @@ np.save(os.path.join(save_subpath, '/top_init_thetas.npy'), top_thetas[ranking[:
 ################################################################################
 
 ssn.load_N_matrix(0.9*torch.eye(2) + 0.1*torch.ones([2,2]))
-ssn.load_thetas(top_thetas[0].detach())
-ssn.load_W(top_ws.detach())
+ssn.load_thetas(top_thetas[ranking[0]].detach())
+ssn.load_W(top_ws[ranking[0]].detach())
 
 # Save so we can skip directly to here later
 torch.save(ssn.state_dict(), os.path.join(save_subpath, "network_growth/simexpand_E1.mdl"))
