@@ -11,7 +11,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 ################################################################################
 
-save_subpath_name = sys.argv[2]
+save_subpath_name = sys.argv[1]
 save_subpath = f"save/{save_subpath_name}"
 if not os.path.isdir(save_subpath):
     os.mkdir(save_subpath)
@@ -28,7 +28,7 @@ input_features = torch.tensor(np.load(os.path.join(save_subpath, "ssn_inputs.npy
 
 # Number of neurons we start with, i.e. we train with starting_size E and I neurons then grow one more
 # i.e. W shape is [2*starting_size, 2*starting_size]
-starting_size = int(sys.argv[1])
+starting_size = int(sys.argv[2])
 
 ################################################################################
 ############  SSN RESUMING  ####################################################
@@ -51,10 +51,9 @@ ssn = SameNumEISSN(
     eps1=(1.0 - dt / tau_eta),
     eps2=np.sqrt(2.0 * dt / tau_eta),
     num_initial_e_neurons=starting_size,
-)
+).to(device)
 
 ssn.load_state_dict(torch.load(os.path.join(save_subpath, f"network_growth/simexpand_E{starting_size}.mdl")))
-ssn.to(device)
 
 ################################################################################
 ############  SSN TRAINING  ####################################################
@@ -62,7 +61,7 @@ ssn.to(device)
 
 
 if starting_size<5:     
-    multiplier = 2
+    multiplier = 2 # 20
 elif starting_size<10:  
     multiplier = 10
 elif starting_size<20:  
@@ -77,46 +76,60 @@ total_patterns = posterior_distribution_means.shape[0]
 num_burn_in_step = 2000
 num_steps = 500       # actual
 
-num_trials = 100    # subbatchsize
+num_trials = 200    # subbatchsize
 
 
-optimiser = torch.optim.Adam(ssn.parameters(), lr=0.01 if starting_size < 4 else 0.0001)
+lr = {
+    1: 0.01,
+    2: 0.005,
+}.get(starting_size, 0.001)
 
-for i in tqdm(range(num_iters_total)):
+optimiser = torch.optim.Adam(ssn.parameters(), lr=lr)
 
-    optimiser.zero_grad()
-    
-    chosen_patterns = (torch.rand(num_patterns_per_iter) * (total_patterns-1)).int()
+log_path = os.path.join(save_subpath, f"network_growth/simexpand_E{starting_size}_training_log.txt")
 
-    batch_posterior_distribution_means = torch.index_select(posterior_distribution_means, 0, chosen_patterns)[:,:starting_size]
-    batch_posterior_distribution_covs  = torch.index_select(posterior_distribution_covs, 0, chosen_patterns)[:,:starting_size, :starting_size]
-    batch_input_features               = torch.index_select(input_features, 0, chosen_patterns)[:,:starting_size]
+with open(log_path, "w") as log_file:
 
-    iteration_cost = torch.tensor(0.)
+    print("Iteration\tTotalLoss", file = log_file, flush=True)
 
-    for j in range(int(20/multiplier)):
+    for i in tqdm(range(num_iters_total)):
 
-        target_means_j = batch_posterior_distribution_means[j*5*multiplier:(j+1)*5*multiplier]
-        target_covs_j = batch_posterior_distribution_covs[j*5*multiplier:(j+1)*5*multiplier]
-        input_j = batch_input_features[j*5*multiplier:(j+1)*5*multiplier]
-
-        u_history = ssn.run_dynamics(
-            num_trials   = num_trials,
-            num_patterns = 5*multiplier,
-            num_steps    = num_burn_in_step + num_steps,
-            dt           = dt,
-            h            = batch_input_features
-        )
-
-        uall = torch.stack(u_history[num_burn_in_step:], 0)
-
-        cost = ssn.full_loss_function(uall, target_means_j, target_covs_j)
+        optimiser.zero_grad()
         
-        iteration_cost += multiplier * cost / 20
+        chosen_patterns = (torch.rand(num_patterns_per_iter) * (total_patterns-1)).int().to(device)
 
-    iteration_cost.backward()
+        batch_posterior_distribution_means = torch.index_select(posterior_distribution_means, 0, chosen_patterns)[:,:starting_size]
+        batch_posterior_distribution_covs  = torch.index_select(posterior_distribution_covs, 0, chosen_patterns)[:,:starting_size, :starting_size]
+        batch_input_features               = torch.index_select(input_features, 0, chosen_patterns)[:,:starting_size]
 
-    optimiser.step()
+        iteration_cost = torch.tensor(0.).to(device)
+
+        for j in range(int(20/multiplier)):
+
+            target_means_j = batch_posterior_distribution_means[j*5*multiplier:(j+1)*5*multiplier].float()
+            target_covs_j = batch_posterior_distribution_covs[j*5*multiplier:(j+1)*5*multiplier].float()
+            input_j = batch_input_features[j*5*multiplier:(j+1)*5*multiplier].float()
+
+            u_history = ssn.run_dynamics(
+                num_trials   = num_trials,
+                num_patterns = 5*multiplier,
+                num_steps    = num_steps,
+                dt           = dt,
+                h            = input_j,
+                num_burn_in_steps = num_burn_in_step
+            )
+
+            uall = torch.stack(u_history, 0)
+
+            cost = ssn.full_loss_function(uall, target_means_j, target_covs_j)
+
+            iteration_cost += multiplier * cost / 20
+
+        iteration_cost.backward()
+
+        optimiser.step()
+
+        print(int(i), '\t', iteration_cost.detach().cpu().item(), file=log_file, flush=True)
 
 
 ################################################################################

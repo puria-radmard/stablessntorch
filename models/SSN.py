@@ -91,71 +91,27 @@ class SameNumEISSN(nn.Module):
         u_history = self.run_dynamics(
             num_trials=num_trials,
             num_patterns=num_patterns,
-            num_steps=num_steps + num_burn_in_step, 
+            num_steps=num_steps, 
             dt=dt, 
-            h=init_input
+            h=init_input,
+            num_burn_in_steps=num_burn_in_step
         )
 
         # [num_steps, num_patterns, num_neurons, num_trials]
-        uall = torch.stack(u_history[num_burn_in_step+1:], 0)
+        uall = torch.stack(u_history, 0)
         cost = self.full_loss_function(uall, target_mean, target_cov)
 
         num_i_neurons = self.get_num_neurons() // 2
 
         i_u_hists = uall[:,:,num_i_neurons:,:]      # [num_steps, num_patters, num I neurons, num_trials]
-        i_u_mean = i_u_hists.mean(-1).mean(0)       # [num patterns, num I neurons]
-        i_u_cov = i_u_hists.var(-1).mean(0)         # [num patterns, num I neurons]
+        newinhmean = i_u_hists.mean(-1).mean(0)       # [num patterns, num I neurons]
+        newinhvar = i_u_hists.var(-1).mean(0)         # [num patterns, num I neurons]
 
-        return i_u_mean, i_u_cov, cost
+        return newinhmean, newinhvar, cost
 
-    def try_initialising_weight_matrix(
-        self,
-        init_input: T,
-        target_cov: T,
-        target_mean: T,
-        num_neurons: int,
-        scale_upper: float,
-        test_w_scale: float,
-        test_thetas_scales: T,
-        num_trials: int,
-        num_simulation_step: int,
-        num_burn_in_step: int,
-        num_patterns: int,
-        dt: float,
-    ):
-
-        currentcost = torch.tensor(torch.nan).to(device)
-
-        counter = 0
-
-        while torch.isnan(currentcost):
-
-            scale = torch.rand(1)[0] * scale_upper
-            inhvar = (scale ** 2) * target_cov
-            inhmean = scale * target_mean
-
-            self.W = Parameter(torch.randn([num_neurons, num_neurons])  * test_w_scale)
-            self.thetas = Parameter(torch.randn(3) * test_thetas_scales)
-
-            inhmean, inhvar, currentcost = self.update_inh(
-                init_input=init_input,
-                num_trials=num_trials,
-                target_mean=target_mean,
-                target_cov=target_cov,
-                num_steps=num_simulation_step,
-                num_patterns=num_patterns,
-                num_burn_in_step=num_burn_in_step,
-                dt=dt,
-            )
-
-            counter += 1
-            print(f"Unstable after {counter} attempt(s)", end='\r')
-
-        return [_t.detach() for _t in (inhmean, inhvar, currentcost)]
 
     def train_init_w_with_inh(self, input_h: T, target_mean: T, target_cov: T, inhmean: T, inhvar: T):
 
-        cost = 0.0
         optimiser = torch.optim.Adam(self.parameters(), lr=0.01)   # Hardcoded!
 
         target_var = torch.diagonal(target_cov, 0, 2) 
@@ -163,7 +119,7 @@ class SameNumEISSN(nn.Module):
         targetvar2 = torch.concat([target_var, inhvar], axis=1).unsqueeze(-1)
         targetmean2 = torch.concat([target_mean, inhmean], axis=1).unsqueeze(-1)
 
-        for i in range(50): # Hardcoded!
+        for _ in range(70): # Hardcoded!
 
             optimiser.zero_grad()
 
@@ -174,6 +130,8 @@ class SameNumEISSN(nn.Module):
 
             cost.backward()
             optimiser.step()
+
+        return cost
 
     def initial_weight_training(
         self,
@@ -187,37 +145,72 @@ class SameNumEISSN(nn.Module):
     ):
         num_neurons = init_input.shape[-1] * 2
 
-        all_costs = torch.zeros(num_iterations, repeats_per_iteration).to(device)
-        all_ws = torch.zeros(num_iterations, repeats_per_iteration, num_neurons, num_neurons).to(device)
-        all_thetas = torch.zeros(num_iterations, repeats_per_iteration, 3).to(device)
+        all_costs = torch.full((num_iterations, repeats_per_iteration), torch.nan).to(device)
+        all_ws = torch.full((num_iterations, repeats_per_iteration, num_neurons, num_neurons), torch.nan).to(device)
+        all_thetas = torch.full((num_iterations, repeats_per_iteration, 3), torch.nan).to(device)
+
+        scale_upper = 0 # scale_upper = 2.0
+        test_thetas_scales = 0 # test_thetas_scales = torch.tensor([0.1, 0.1, 1.0])
+        test_w_scale = 0 # test_w_scale = 0.1
+
+        num_trials = 200
+        num_simulation_steps = 1000
+        num_burn_in_step = 1500
 
         for j in range(num_iterations):
 
-            iteration_inhmean, iteration_inhvar, current_cost = self.try_initialising_weight_matrix(
-                init_input=init_input,
-                target_cov=target_cov,  # Will convert to var later...
-                target_mean=target_mean,
-                num_neurons=self.num_initial_e_neurons * 2,
-                scale_upper=2.0,
-                test_w_scale=0.1,
-                # Shouldn't these be 1, 1, 1?
-                test_thetas_scales=torch.tensor([0.1, 0.1, 1.0]).to(device),
-                num_trials=2000,
-                num_simulation_step=2000,
-                num_burn_in_step=2000,
-                num_patterns=num_patterns,
-                dt=dt,
-            )
+            num_neurons = self.num_initial_e_neurons * 2
 
-            print("\n")
-            print(f"Initialisation {j} done! Begining {repeats_per_iteration} training repeats")
+            currentcost = torch.tensor(torch.nan).to(device)
+
+            counter = 0
+
+            while torch.isnan(currentcost):
+
+                scale = torch.rand([]) * scale_upper
+                inhvar = (scale ** 2) * torch.diagonal(target_cov, 0, 2)
+                inhmean = scale * target_mean
+
+                self.load_W((torch.randn([num_neurons, num_neurons]) * test_w_scale).to(device))
+                self.load_thetas((torch.randn(3) * test_thetas_scales).to(device))
+                import pdb; pdb.set_trace()
+
+                # # Added this in myself!
+                # self.train_init_w_with_inh(
+                #     input_h=init_input,
+                #     target_cov=target_cov,
+                #     target_mean=target_mean,
+                #     inhmean=inhmean, 
+                #     inhvar=inhvar
+                # )
+
+                inhmean, inhvar, currentcost = self.update_inh(
+                    init_input=init_input,
+                    num_trials=num_trials,
+                    target_mean=target_mean,
+                    target_cov=target_cov,
+                    num_steps=num_simulation_steps,
+                    num_patterns=num_patterns,
+                    num_burn_in_step=num_burn_in_step,
+                    dt=dt,
+                )
+
+                counter += 1
+                if torch.isnan(currentcost):
+                    print(f"Unstable after {counter} attempt(s)", end='\r')
+
+            iteration_inhmean, iteration_inhvar, current_cost = [_t.detach() for _t in (inhmean, inhvar, currentcost)]
+
 
             all_costs[j, 0] = current_cost.detach().item()
             all_ws[j, 0] = self.W.detach().clone()
             all_thetas[j, 0] = self.thetas.detach().clone()
 
+            print("\n")
+            print(f"Initialisation {j} found after {counter} attempt(s), cost of {current_cost}! Begining {repeats_per_iteration} training repeats")
+
             # i.e. now, we have established that this random W is stable, so we can repeat
-            for i in tqdm(range(repeats_per_iteration)):
+            for i in range(1, repeats_per_iteration):
                 
                 self.train_init_w_with_inh(
                     input_h=init_input,
@@ -229,14 +222,16 @@ class SameNumEISSN(nn.Module):
                 
                 inhmean, inhvar, rep_cost = self.update_inh(
                     init_input=init_input,
-                    num_trials=2000,
+                    num_trials=num_trials,
                     target_mean=target_mean,
                     target_cov=target_cov,
-                    num_steps=2000,
+                    num_steps=num_simulation_steps,
                     num_patterns=num_patterns,
-                    num_burn_in_step=2000,
+                    num_burn_in_step=num_burn_in_step,
                     dt=dt,
                 )
+
+                print('\tRep cost:', rep_cost.item())
 
                 if torch.isnan(rep_cost):
                     break
@@ -262,25 +257,37 @@ class SameNumEISSN(nn.Module):
                 torch.ones(num_neuron_of_each_type) * self.dynamics_kwargs["tau_e"],
                 torch.ones(num_neuron_of_each_type) * self.dynamics_kwargs["tau_i"],
             ]
-        ).unsqueeze(-1).repeat(1, 1, num_trials)
+        ).unsqueeze(-1).repeat(1, 1, num_trials).to(device)
 
     def new_eta(self, num_trials: int, num_patterns: int, old_eta=None):
         num_neurons = self.get_num_neurons()
-        new_rand = self.N_matrix @ torch.randn([num_patterns, num_neurons, num_trials])
+        new_rand = self.N_matrix @ torch.randn([num_patterns, num_neurons, num_trials]).to(device)
         if old_eta is not None:
             old_comp = old_eta * self.dynamics_kwargs['eps1']
             new_comp = self.dynamics_kwargs['eps2'] * new_rand
-            return old_comp + new_comp
+            return (old_comp + new_comp).to(device)
         else:
-            return new_rand
+            return (new_rand).to(device)
 
-    def run_dynamics(self, num_trials: int, num_patterns: int, num_steps: int, dt: float, h: T):
+    def run_dynamics(self, num_trials: int, num_patterns: int, num_steps: int, dt: float, h: T, num_burn_in_steps = 0):
+        
         eta = self.new_eta(num_trials, num_patterns)            # [patterns, total neurons, trials]
         u = self.init_dynamics(num_trials, num_patterns)        # [patterns, total neurons, trials]
         w = self.mask_weight()                                  # [total neurons, total neurons]
         tau = self.tau_vector(num_trials)                       # [1 (?), total neurons, trials]
-        u_history = [u]
-        f = input_nonlinearity(h, *self.thetas).repeat(1, 1, num_trials)
+        f = input_nonlinearity(h, *self.thetas).repeat(1, 1, num_trials).float()
+        
+        self.eval()
+        for _ in range(num_burn_in_steps):
+            du_dt = dynamics_step(
+                u=u, h=h, W=w, eta=eta, tau=tau, f=f, **self.dynamics_kwargs
+            )
+            u = u + (du_dt * dt)
+            eta = self.new_eta(num_trials, num_patterns, eta)
+
+        u_history = []
+
+        self.train()
         for _ in range(num_steps):
             du_dt = dynamics_step(
                 u=u, h=h, W=w, eta=eta, tau=tau, f=f, **self.dynamics_kwargs
@@ -288,4 +295,5 @@ class SameNumEISSN(nn.Module):
             u = u + (du_dt * dt)
             u_history.append(u)
             eta = self.new_eta(num_trials, num_patterns, eta)
+
         return u_history

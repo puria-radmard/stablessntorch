@@ -2,6 +2,9 @@ import torch.nn.functional as F
 from torch import Tensor as T
 import torch
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
 def input_nonlinearity(h: T, theta_1: float, theta_2: float, theta_3: float):
     # Same input for E and I cells
     exc_input = (theta_1**2) * torch.exp((theta_3**2) * torch.log(h + (theta_2**2)))
@@ -29,6 +32,7 @@ def dynamics_step(tau: T, u: T, f: T, W: T, eta: T, k: float, gamma: float, **kw
     NB: does not include dt as step size!
     """
     r = rate_nonlinearity(u, k, gamma)
+    # print(torch.cuda.memory_allocated() / (1024**2))
     du_dt = (-u + f + (W @ r) + eta) / tau
     return du_dt
 
@@ -39,7 +43,7 @@ def dales_mask(weights: T, num_exc: int):
     """
     mask = torch.ones_like(weights)
     mask[:, num_exc: ] = -1
-    return weights * torch.abs(mask)
+    return torch.abs(weights) * mask
 
 
 def sampling_cost_from_statistics(u_mean: T, target_mean: T, u_cov: T, target_cov: T, lambda_cov: float, lambda_var: float, lambda_mean: float):
@@ -69,7 +73,7 @@ def full_loss_function(u_hists: T, target_mean: T, target_cov: T, first_n: int, 
     e_u_mean = e_u_hists.mean(-1).mean(0)
 
     # Torch doesn't offer a batched covariance unfortunately so this will have to do
-    e_u_cov = torch.zeros([num_patterns, num_neurons, num_neurons])
+    e_u_cov = torch.zeros([num_patterns, num_neurons, num_neurons]).to(device)
     for step in range(num_steps):
         addition = torch.stack([_t.cov() for _t in e_u_hists[step]]) / float(num_steps)
         e_u_cov += addition.reshape(e_u_cov.shape)

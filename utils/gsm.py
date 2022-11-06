@@ -21,7 +21,6 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 def gsm_forward_pass(filter_set: T, latent_values: T, noise_term: T, contrast) -> T:
     return contrast * (filter_set @ latent_values) + noise_term
 
-
 def gabor(theta: T, scale: T, _x: T, _y: T, square_size: int) -> T:
     """
     "Forward-pass" of a set of filter parameters (theta_A) to the actual filter set A
@@ -34,7 +33,7 @@ def gabor(theta: T, scale: T, _x: T, _y: T, square_size: int) -> T:
 
     num_filters = _y.shape[0]
     sigma = SCALE_TO_SIGMA * scale
-    k = SCALE_TO_K / sigma
+    k = SCALE_TO_K / scale
     gamma = GAMMA
 
     # Both are [square_size, square_size]
@@ -52,18 +51,20 @@ def gabor(theta: T, scale: T, _x: T, _y: T, square_size: int) -> T:
     axis_2 = canvas_y_offset * torch.cos(theta) - canvas_x_offset * torch.sin(theta)
 
     gauss = torch.exp(
-        -(((gamma ** 2) * (axis_1 ** 2)) + (axis_2 ** 2)) / (2 * (sigma ** 2))
+        -((gamma ** 2) * (axis_1 ** 2) + (axis_2 ** 2)) / (2 * (sigma ** 2))
     )
     sinusoid = torch.cos(k * axis_1)
+    fields = gauss * sinusoid
 
-    return gauss * sinusoid, gauss, sinusoid
+    return fields, gauss, sinusoid
 
 
 def ols_fit(filter_set: T, image_set: T) -> T:
     # filter set: [full image size, num_filters]
     # image_set: [num_images, full image size]
     # output: [num_images, num_filters]
-    return image_set @ (filter_set @ torch.linalg.inv(filter_set.T @ filter_set))
+    left_inv = torch.linalg.inv( filter_set.T @ filter_set ) @ filter_set.T
+    return (left_inv @ image_set.unsqueeze(-1)).squeeze()
 
 
 def ols_projection(filter_set: T, image_set: T) -> T:
@@ -97,17 +98,25 @@ def train_gsm_projective_fields(
     Currently don't return theta_A, just the final A that they use
     """
     params = [thetas, scales, x_mids, y_mids]
-    optimiser = torch.optim.Adam(lr=0.05, params=params)
+    optimiser = torch.optim.Adam(lr=0.01, params=params)
 
     history = []
 
     print("Training GSM projective fields")
+    # for i in tqdm(range(n_iter)):
     for i in tqdm(range(n_iter)):
 
         optimiser.zero_grad()
 
         # [square_size, square_size, num_filters]
-        projective_fields, _, _ = gabor(theta=thetas, scale=scales, _x=x_mids, _y=y_mids, square_size=square_size)
+        projective_fields, gauss, sinusoid = gabor(theta=thetas, scale=scales, _x=x_mids, _y=y_mids, square_size=square_size)
+
+        # if i%10 == 0:
+        #     fig, axes = plt.subplots(5, 3)
+        #     [ax.imshow(projective_fields[:,:,i].cpu().detach()) for i, ax in enumerate(axes[:,0])]
+        #     [ax.imshow(gauss[:,:,i].cpu().detach()) for i, ax in enumerate(axes[:,1])]
+        #     [ax.imshow(sinusoid[:,:,i].cpu().detach()) for i, ax in enumerate(axes[:,2])]
+        #     fig.savefig('asdf.png')
 
         # [square_size * square_size, num_filters]
         projective_fields = projective_fields.reshape(square_size * square_size, -1)
@@ -119,6 +128,8 @@ def train_gsm_projective_fields(
         optimiser.step()
 
         history.append(V_loss.item())
+        print(history[-1])
+
 
     final_projective_fields, _, _ = gabor(
         theta=thetas, scale=scales, _x=x_mids, _y=y_mids, square_size=square_size

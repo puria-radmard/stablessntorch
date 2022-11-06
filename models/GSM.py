@@ -12,7 +12,7 @@ from utils.gsm import *
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
-N_ITER = 2000 # 10000
+N_ITER = 5000
 N_Z = 100
 
 class GSM(nn.Module):

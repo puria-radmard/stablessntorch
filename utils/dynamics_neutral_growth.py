@@ -6,20 +6,19 @@ from torch.nn.parameter import Parameter
 def dynamics_neutral_mitosis(W: T, n: int):
     """
     Equations (4) and (5)
-    XXX: check that halving columsn for W is still the right answer!
-    XXX: make sure E,I types stay in blocks here!!!
     """
     new_W = W.clone()
 
-    new_column = new_W[:,n] * 0.5
+    new_column = (new_W[:,n] * 0.5).unsqueeze(-1)
     new_W = torch.concat([new_W[:,:n], new_column, new_column, new_W[:,n+1:]], axis=1)
 
-    new_row = new_W[n]
+    new_row = new_W[n].unsqueeze(0)
     new_W = torch.concat([new_W[:n], new_row, new_row, new_W[n+1:]], axis=0)
 
     return new_W
 
 def select_top_params(init_costs, init_ws, init_thetas, num_initialisation_iterations):
+    """Should automatically deal with nans!"""
     top_costs, top_ws, top_thetas = [], [], []
     for i in range(num_initialisation_iterations):
         idx = init_costs[i].argmin()
